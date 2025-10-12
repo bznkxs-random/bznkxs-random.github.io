@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Resizable Piano Keyboard Widget</title>
+<style>
+  /* --- Widget container --- */
+  .piano-widget {
+    position: relative;
+    resize: both;            /* drag to change width/height */
+    overflow: hidden;        /* required for resize handle */
+    min-width: 480px;
+    min-height: 180px;
+    width: 900px;            /* starting size; user can drag to change */
+    height: 260px;
+    border: 2px solid #ccc;
+    border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    background: linear-gradient(#f9f9f9, #f0f0f0);
+    user-select: none;
+  }
+
+  .bar {
+    position: absolute;
+    left: 0; right: 0; top: 0;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
+    font-size: 14px;
+    background: linear-gradient(#fff, #f3f3f3);
+    border-bottom: 1px solid #e6e6e6;
+  }
+  .bar .title { font-weight: 600; color: #333; }
+  .bar .spacer { flex: 1 1 auto; }
+  .bar .hint { color: #777; }
+
+  /* Make the SVG fill the widget and leave space for the top bar */
+  .stage {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    top: 34px;               /* below the bar */
+  }
+  svg { width: 100%; height: 100%; display: block; }
+
+  /* Visual styles for keys */
+  .white-key { fill: #fff; stroke: #bbb; stroke-width: 1; }
+  .white-key:hover { filter: brightness(0.97); }
+  .black-key { fill: #111; stroke: #000; stroke-width: 1; }
+  .black-key:hover { filter: brightness(1.15); }
+
+  .pressed-white { fill: #e9f2ff !important; }
+  .pressed-black { fill: #444 !important; }
+
+  /* A subtle focus outline for accessibility */
+  .focus-ring { outline: 2px solid #5b9dd9; outline-offset: 2px; }
+
+  .key-label {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  fill: #666;
+  pointer-events: none;   /* don’t block clicks */
+  text-anchor: middle;    /* center horizontally */
+  dominant-baseline: middle;
+}
+
+</style>
+</head>
+<body>
+  <div class="piano-widget" id="pianoWidget" aria-label="Piano keyboard widget" role="application">
+    <div class="bar">
+      <div class="title">Piano</div>
+      <div class="spacer"></div>
+      <label class="hint">
+        Drag to resize · Click a key to play · Audio folder: <code id="folderLabel">./sounds/</code>
+      </label>
+    </div>
+    <div class="stage">
+      <!-- SVG keyboard will be injected here -->
+      <svg id="pianoSvg" viewBox="0 0 1040 300" preserveAspectRatio="none" aria-hidden="false"></svg>
+    </div>
+  </div>
+
+<script>
+(function(){
+  // === Configuration ===
+  // Put your MP3 files in this folder (relative to this HTML file), or change this path.
+  // Filenames must follow the pattern NNN_<Note><Octave>.mp3 using sharps, e.g. 049_A4.mp3, 036_G#3.mp3
+  const AUDIO_BASE_PATH = './notes/';
+  document.getElementById('folderLabel').textContent = AUDIO_BASE_PATH;
+
+  // Keyboard range: 88-key piano from A0 (MIDI 21) to C8 (MIDI 108)
+  // We’ll index notes by semitones from C0 (where C0 is 0). A0 is 9, C8 is 96.
+  const START_S = 9;   // A0 in semitones from C0
+  const END_S   = 96;  // C8 inclusive
+
+  const NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const isSharp = (name) => name.includes('#');
+
+  // Our filename index scheme, inferred from examples:
+  // index = semitones_from_C0 - 8
+  // Example: G#3 => s=44 => 44-8=36 => 036_G#3.mp3
+  //          A4  => s=57 => 57-8=49 => 049_A4.mp3
+  function filenameFor(s){
+    const name = NAMES[s % 12];
+    const octave = Math.floor(s / 12);
+    const index = String(s - 8).padStart(3,'0');
+    return `${index}_${name}${octave}.mp3`;
+  }
+
+  // Count whites in range to layout proportionally
+  function countWhites(){
+    let count = 0;
+    for(let s=START_S; s<=END_S; s++){
+      if(!isSharp(NAMES[s%12])) count++;
+    }
+    return count; // should be 52
+  }
+
+  const SVG_W = 1040;  // logical width for viewBox
+  const SVG_H = 300;   // logical height for viewBox
+  const WHITE_COUNT = countWhites();
+  const WHITE_W = SVG_W / WHITE_COUNT;
+  const WHITE_H = SVG_H;
+  const BLACK_W = WHITE_W * 0.6;
+  const BLACK_H = SVG_H * 0.64;
+
+  const svg = document.getElementById('pianoSvg');
+  svg.setAttribute('viewBox', `0 0 ${SVG_W} ${SVG_H}`);
+
+  // Groups to control z-order: whites behind, blacks in front
+  const gWhites = document.createElementNS('http://www.w3.org/2000/svg','g');
+  const gBlacks = document.createElementNS('http://www.w3.org/2000/svg','g');
+  svg.appendChild(gWhites);
+  svg.appendChild(gBlacks);
+
+  // Accessibility: enable keyboard focus for the SVG container
+  svg.setAttribute('tabindex','0');
+  svg.addEventListener('focus', () => svg.classList.add('focus-ring'));
+  svg.addEventListener('blur',  () => svg.classList.remove('focus-ring'));
+
+  let whiteIndex = 0; // running index for white key positions
+
+  // We’ll keep references for press/release visuals
+  const keyRects = [];
+
+  for(let s=START_S; s<=END_S; s++){
+    const noteName = NAMES[s % 12];
+    const octave = Math.floor(s / 12);
+    const isBlack = isSharp(noteName);
+    const file = filenameFor(s);
+
+    if(!isBlack){
+      const x = whiteIndex * WHITE_W;
+      const y = 0;
+      const rect = makeRect(x, y, WHITE_W, WHITE_H, 'white-key');
+      addHandlers(rect, s, file, /*black*/false);
+      gWhites.appendChild(rect);
+      annotate(rect, `${noteName}${octave}`, file);
+      keyRects.push({s, rect, isBlack:false});
+      whiteIndex++;
+    } else {
+      // Black key sits between previous white and next white.
+      // Position centered between them: prevWhiteX + WHITE_W - BLACK_W/2
+      const prevWhiteX = (whiteIndex - 1) * WHITE_W;
+      const x = prevWhiteX + WHITE_W - (BLACK_W/2);
+      const y = 0;
+      const rect = makeRect(x, y, BLACK_W, BLACK_H, 'black-key');
+
+      addHandlers(rect, s, file, /*black*/true);
+      gBlacks.appendChild(rect);
+      annotate(rect, `${noteName}${octave}`, file);
+      keyRects.push({s, rect, isBlack:true});
+    }
+  }
+
+  function makeRect(x,y,w,h, cls){
+    const r = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    r.setAttribute('x', x);
+    r.setAttribute('y', y);
+    r.setAttribute('width', w);
+    r.setAttribute('height', h);
+    r.setAttribute('rx', 4);
+    r.setAttribute('class', cls);
+    r.setAttribute('role','button');
+    r.setAttribute('aria-label','piano key');
+    return r;
+  }
+
+function annotate(el, label, filename){
+  el.setAttribute('data-label', label);
+  el.setAttribute('data-file', filename);
+
+  // Tooltip
+  const t = document.createElementNS('http://www.w3.org/2000/svg','title');
+  t.textContent = `${label} • ${filename}`;
+  el.appendChild(t);
+
+  // Draw visible label on white C keys only
+  const isWhite = (el.getAttribute('class') || '').includes('white-key');
+  const isC = label.startsWith('C') && !label.includes('#');
+  if (isWhite && isC && el.parentNode) {
+    const x = parseFloat(el.getAttribute('x')) + parseFloat(el.getAttribute('width')) / 2;
+    const y = parseFloat(el.getAttribute('y')) + parseFloat(el.getAttribute('height')) - 16; // near bottom
+
+    const txt = document.createElementNS('http://www.w3.org/2000/svg','text');
+    txt.setAttribute('x', x);
+    txt.setAttribute('y', y);
+    txt.setAttribute('class', 'key-label');
+    txt.textContent = label; // e.g., "C4"
+
+    // Put the label in the same group as the key so it scales together
+    el.parentNode.appendChild(txt);
+  }
+}
+
+  function addHandlers(rect, s, file, black){
+    const play = () => playFile(file.replaceAll("#", "%23"));
+    const pressOn = () => rect.classList.add(black ? 'pressed-black' : 'pressed-white');
+    const pressOff = () => rect.classList.remove(black ? 'pressed-black' : 'pressed-white');
+
+    // Pointer / mouse
+    rect.addEventListener('pointerdown', (e)=>{ pressOn(); play(); });
+    rect.addEventListener('pointerup',   (e)=>{ pressOff(); });
+    rect.addEventListener('pointerleave',(e)=>{ pressOff(); });
+
+    // Keyboard accessibility (space/enter)
+    rect.setAttribute('tabindex','0');
+    rect.addEventListener('keydown', (e)=>{
+      if(e.code === 'Space' || e.code === 'Enter'){
+        e.preventDefault(); pressOn(); play();
+      }
+    });
+    rect.addEventListener('keyup', (e)=>{
+      if(e.code === 'Space' || e.code === 'Enter') pressOff();
+    });
+  }
+
+  function playFile(file){
+    const a = new Audio(AUDIO_BASE_PATH + file);
+    a.currentTime = 0;
+    a.play().catch(err => {
+      // Surface a gentle note if the file is missing or blocked.
+      console.warn('Audio play error for', file, err);
+    });
+  }
+
+  // Optional: simple keyboard mapping for quick testing (row of keys)
+  // This maps A W S E D F T G Y H U J to one chromatic octave starting at C4
+  const KEYMAP = {
+    'KeyA': 48, 'KeyW': 49, 'KeyS': 50, 'KeyE': 51, 'KeyD': 52, 'KeyF': 53,
+    'KeyT': 54, 'KeyG': 55, 'KeyY': 56, 'KeyH': 57, 'KeyU': 58, 'KeyJ': 59
+  };
+  svg.addEventListener('keydown', (e)=>{
+    const s = KEYMAP[e.code];
+    if(s != null){
+      const file = filenameFor(s);
+      playFile(file);
+    }
+  });
+})();
+</script>
+</body>
+</html>
