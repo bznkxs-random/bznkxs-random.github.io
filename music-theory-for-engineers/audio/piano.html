@@ -262,6 +262,16 @@ function annotate(el, label, filename){
       playFile(file);
     }
   });
+    function fitWidget(){
+    const frame = window.frameElement;
+    const w = frame ? frame.clientWidth : window.innerWidth;
+    const h = frame ? frame.clientHeight : window.innerHeight;
+    const widget=document.getElementById('pianoWidget');
+    widget.style.width=w*0.98+'px';
+    widget.style.height=Math.min(h, w * 0.3)*0.98+'px';
+  }
+  fitWidget();
+  window.addEventListener('resize',fitWidget);
 })();
 </script>
 </body>
