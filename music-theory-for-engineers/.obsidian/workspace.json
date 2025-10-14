@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "1.音高.md",
+                "file": "2.大调音阶.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "1.音高"
+              "title": "2.大调音阶"
             }
           }
         ]
@@ -171,9 +171,20 @@
   },
   "active": "fea5898bf7e2ced2",
   "lastOpenFiles": [
+    "images/f_major_scale_on_keyboard.png",
+    "images/g_major_scale_on_keyboard.png",
+    "audio/characteristic-of-mediant.mp3",
+    "audio/tendency_of_leading_tone.mp3",
+    "audio/C-B-CB.mp3",
+    "audio/C-E-CE.mp3",
+    "1.音高.md",
+    "2.大调音阶.md",
+    "images/Schoenberg_tonic_dominant_subdominant.png",
+    "Pasted image 20251013201917.png",
+    "一些定义.md",
+    "images/piano_c3_c4.png",
     "images/pythagorean-tuning/half-step-whole-step.png",
     "images/pythagorean-tuning/pythagorean-tuning-note-11 - Copy.png",
-    "1.音高.md",
     "images/pythagorean-tuning/pythagorean-tuning-generation.png",
     "audio/pythagorean-12-on-A.mp3",
     "audio/440.mp3",
@@ -182,20 +193,10 @@
     "images/pythagorean-tuning/pythagorean-tuning-note-13.png",
     "images/pythagorean-tuning/pythagorean-tuning-note-12.png",
     "images/pythagorean-tuning/pythagorean-tuning-note-11.png",
-    "images/pythagorean-tuning/pythagorean-tuning-note-10.png",
-    "images/pythagorean-tuning/pythagorean-tuning-note-9.png",
-    "images/pythagorean-tuning/pythagorean-tuning-note-8.png",
-    "images/pythagorean-tuning/pythagorean-tuning-note-7.png",
-    "images/pythagorean-tuning/pythagorean-tuning-note-6.png",
     "images/pythagorean-tuning",
     "总述.md",
     "images/Pasted.md",
     "audio/B-F.mp3",
-    "audio/E-B.mp3",
-    "audio/A-E.mp3",
-    "audio/660-770.mp3",
-    "audio/E-A.mp3",
-    "Untitled.md",
     "Welcome.md"
   ]
 }
