@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>f(t)=sin(t)·cos(t/x) — Plotter & Synth</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root { --gap: 14px; --fg:#111; --muted:#777; --accent:#2563eb; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+           margin: 0; color: var(--fg); background: #fafafa; }
+    .wrap { max-width: 980px; margin: 32px auto; padding: 0 16px; }
+    h1 { font-size: 20px; margin: 0 0 10px; font-weight: 600; }
+    .controls { display: grid; gap: var(--gap); grid-template-columns: 1fr auto; align-items: start;
+                background: #fff; padding: 16px; border-radius: 14px; box-shadow: 0 6px 18px rgba(0,0,0,.06); }
+    .row { display: grid; gap: 10px; }
+    .small { color: var(--muted); font-size: 12px; }
+    input[type="range"] { width: 100%; }
+    .marks { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .textbox { display: grid; gap: 6px; justify-items: end; }
+    .field { display: grid; gap: 6px; }
+    input[type="number"] { width: 140px; padding: 8px 10px; border-radius: 10px; border: 1px solid #ddd; font-size: 14px; }
+    canvas { width: 100%; height: 460px; background: #fff; border-radius: 14px; box-shadow: 0 10px 26px rgba(0,0,0,.08); margin-top: 18px; }
+    .legend { display:flex; gap:12px; align-items:center; margin-top:8px; color:var(--muted); font-size:12px; }
+    .key { display:inline-block; width:18px; height:3px; background: var(--accent); border-radius: 2px; vertical-align: middle; }
+    .axiskey { background:#999; }
+    .audio { display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
+    .pill { padding:10px 14px; border: 1px solid #ddd; border-radius: 999px; background:#fff; }
+    button { border: none; background: var(--accent); color: #fff; padding: 10px 14px; border-radius: 10px; font-weight: 600; cursor: pointer; }
+    button[aria-pressed="true"] { background:#e11d48; } /* stop color */
+    .kv { color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Plot & Sound: <code>f(t) = sin(t) · cos(t / x)</code></h1>
+
+    <div class="controls">
+      <!-- Left side: x control (slider + marks) -->
+      <div class="row">
+        <label for="xRange"><strong>x</strong> (drag the slider)</label>
+        <input id="xRange" type="range" min="0" max="7" step="0.001" value="1" list="xmarks" />
+        <datalist id="xmarks">
+          <option value="0" label="1"></option>
+          <option value="0.415" label="4/3"></option>
+          <option value="0.585" label="3/2"></option>
+          <option value="1" label="2"></option>
+          <option value="1.585" label="3"></option>
+          <option value="2" label="4"></option>
+          <option value="7" label="128"></option>
+        </datalist>
+        <div class="marks">
+          <span>1</span>
+          <span>4/3</span>
+          <span>3/2</span>
+          <span>2</span>
+          <span>3</span>
+          <span>4</span>
+          <span>128</span>
+        </div>
+        <div class="small">Range: 1 ≤ x ≤ 128. You can type fractional values, too.</div>
+        <div>
+          <canvas id="dissonance-plot" aria-label="Dissonance plot of f1 & f2"></canvas>
+        </div>
+      </div>
+
+      <!-- Right side: x textbox + audio controls -->
+      <div class="textbox">
+        <div class="field">
+          <label for="xBox">x value</label>
+          <input id="xBox" type="number" min="1" max="128" step="0.001" value="2" />
+        </div>
+        <div class="field">
+          <label for="a0Box">A₀ (Hz, for sound)</label>
+          <input id="a0Box" type="number" min="20" max="20000" step="1" value="440" />
+        </div>
+        <div class="audio">
+          <button id="playBtn" aria-pressed="false">▶ Play</button>
+          <label class="pill">
+            Volume
+            <input id="vol" type="range" min="0" max="1" step="0.001" value="0.15" style="vertical-align:middle; width:140px; margin-left:8px;">
+          </label>
+        </div>
+        <div class="kv" id="freqReadout" style="white-space: pre-line"></div>
+      </div>
+    </div>
+
+    <canvas id="plot" width="1200" height="700" aria-label="Function plot of sin(t) * cos(t/x)"></canvas>
+    <div class="legend">
+      <span class="key axiskey"></span> axes
+      <span class="key"></span> f(t)
+      <span>t-range shown: −8π to +8π</span>
+    </div>
+  </div>
+
+  <script>
+    // ---- DOM refs
+    const range = document.getElementById('xRange');
+    const box   = document.getElementById('xBox');
+    const a0Box = document.getElementById('a0Box');
+    const playBtn = document.getElementById('playBtn');
+    const vol = document.getElementById('vol');
+    const freqReadout = document.getElementById('freqReadout');
+
+    const canvas = document.getElementById('plot');
+    const ctx = canvas.getContext('2d');
+
+    const canvasD = document.getElementById("dissonance-plot");
+    const ctxD = canvasD.getContext("2d");
+
+    // Handle HiDPI rendering for crisp lines
+    function setupHiDPIForCanvas(canvasAny, ctxAny) {
+      const ratio = window.devicePixelRatio || 1;
+      const cssW = canvasAny.clientWidth;
+      const cssH = canvasAny.clientHeight;
+      if (canvasAny.width !== Math.round(cssW * ratio) || canvasAny.height !== Math.round(cssH * ratio)) {
+        canvasAny.width = Math.round(cssW * ratio);
+        canvasAny.height = Math.round(cssH * ratio);
+      }
+      ctxAny.setTransform(ratio, 0, 0, ratio, 0, 0); // draw in CSS pixels
+    }
+
+    function setupHiDPI() {
+      setupHiDPIForCanvas(canvas, ctx);
+
+    }
+
+    function setupHiDPID(){
+      setupHiDPIForCanvas(canvasD, ctxD);
+    }
+
+
+    // Plot settings
+    const tMin = -128 * Math.PI;
+    const tMax =  128 * Math.PI;
+    const padding = { left: 48, right: 16, top: 20, bottom: 36 };
+    const yMin = -1.1, yMax = 1.1; // slight headroom
+
+    // Coordinate transforms
+    function xPix(t) {
+      const w = canvas.clientWidth - padding.left - padding.right;
+      return padding.left + (t - tMin) * w / (tMax - tMin);
+    }
+    function yPix(f) {
+      const h = canvas.clientHeight - padding.top - padding.bottom;
+      return padding.top + (yMax - f) * h / (yMax - yMin);
+    }
+
+    function xPixD(t, tMin, tMax) {
+      const w = canvasD.clientWidth - padding.left - padding.right;
+      return padding.left + (t - tMin) * w / (tMax - tMin);
+    }
+    function yPixD(f) {
+      const h = canvasD.clientHeight - padding.top - padding.bottom;
+      return padding.top + (yMax - f) * h / (yMax - 0);
+    }
+
+    // Draw axes, grid, and labels
+    function drawAxes() {
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      ctx.clearRect(0, 0, w, h);
+
+      ctx.lineWidth = 1;
+
+      // Grid (vertical at multiples of π)
+      ctx.strokeStyle = '#e7e7e7';
+      ctx.beginPath();
+      for (let k = Math.ceil(tMin/Math.PI); k <= Math.floor(tMax/Math.PI); k+=1) {
+        const t = k * Math.PI;
+        const x = xPix(t);
+        ctx.moveTo(x, padding.top);
+        ctx.lineTo(x, h - padding.bottom);
+      }
+      // Horizontal grid at y = -1, -0.5, 0, 0.5, 1
+      for (let y = -1; y <= 1.0001; y += 0.5) {
+        const yp = yPix(y);
+        ctx.moveTo(padding.left, yp);
+        ctx.lineTo(w - padding.right, yp);
+      }
+      ctx.stroke();
+
+      // Axes
+      ctx.strokeStyle = '#999';
+      ctx.beginPath();
+      // y = 0 axis
+      ctx.moveTo(padding.left, yPix(0));
+      ctx.lineTo(w - padding.right, yPix(0));
+      // t = 0 axis
+      ctx.moveTo(xPix(0), padding.top);
+      ctx.lineTo(xPix(0), h - padding.bottom);
+      ctx.stroke();
+
+      // Labels
+      ctx.fillStyle = '#666';
+      ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif';
+
+      // x (t) ticks at multiples of π
+      for (let k = Math.ceil(tMin/Math.PI/2); k <= Math.floor(tMax/Math.PI/2); k++) {
+        const t = k * Math.PI * 2;
+        const x = xPix(t);
+        const labelValue = parseFloat(a0Box.value)
+        if (k % 5 === 0) {
+          const label = (k === 0) ? '0' : (k + "/" + labelValue);
+          ctx.fillText(label, x - ctx.measureText(label).width/2, h - 12);
+        }
+
+      }
+
+      // y ticks
+      for (let y = -1; y <= 1.0001; y += 0.5) {
+        const yp = yPix(y);
+        const label = (Math.abs(y) < 1e-9) ? '0' : String(y);
+        ctx.fillText(label, 10, yp - 2);
+      }
+
+      // Axis titles
+      ctx.font = '13px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif';
+      ctx.fillText('t', w - padding.right - 10, yPix(0) - 8);
+      ctx.save();
+      ctx.translate(16, padding.top + 16);
+      ctx.rotate(-Math.PI/2);
+      ctx.fillText('f(t)', 0, 0);
+      ctx.restore();
+    }
+
+    // Compute and draw f(t) for a given x
+    function drawFunction(x) {
+      setupHiDPI();
+      drawAxes();
+
+      ctx.strokeStyle = '#2563eb';
+      ctx.lineWidth = 2;
+
+      const W = canvas.clientWidth - padding.left - padding.right;
+      const samples = Math.max(800, Math.floor(W)) * 5; // plenty for smoothness
+
+      ctx.beginPath();
+      for (let i = 0; i <= samples; i++) {
+        const t = tMin + (i / samples) * (tMax - tMin);
+        const y = Math.sin(t) * Math.cos(t / x);
+        const xp = xPix(t);
+        const yp = yPix(y);
+        if (i === 0) ctx.moveTo(xp, yp); else ctx.lineTo(xp, yp);
+      }
+      ctx.stroke();
+    }
+
+    function getLogFreqMin(freqA) {
+      let logFreqMin = Math.log2(freqA / 16);
+      return logFreqMin;
+    }
+    function drawDissonanceAxes(x, freqA) {
+      const logFreqMin = getLogFreqMin(freqA);
+      const logFreqMax = Math.log2(freqA);
+      console.log("Log range", logFreqMin, logFreqMax)
+      const w = canvasD.clientWidth, h = canvasD.clientHeight;
+      ctxD.clearRect(0, 0, w, h);
+
+      ctxD.lineWidth = 1;
+
+      // Grid (vertical at multiples of π)
+      ctxD.strokeStyle = '#e7e7e7';
+      ctxD.beginPath();
+      for (let k = (logFreqMin); k <= (logFreqMax); k+=0.5) {
+        const x = xPixD(k, logFreqMin, logFreqMax);
+        ctxD.moveTo(x, padding.top);
+        ctxD.lineTo(x, h - padding.bottom);
+      }
+      // Horizontal grid at y = -1, -0.5, 0, 0.5, 1
+      for (let y = 0; y <= 1.0001; y += 0.2) {
+        const yp = yPixD(y);
+        ctxD.moveTo(padding.left, yp);
+        ctxD.lineTo(w - padding.right, yp);
+      }
+      ctxD.stroke();
+
+      // Axes
+      ctxD.strokeStyle = '#999';
+      ctxD.beginPath();
+      // y = 0 axis
+      ctxD.moveTo(padding.left, yPixD(0));
+      ctxD.lineTo(w - padding.right, yPixD(0));
+      // t = 0 axis
+      ctxD.moveTo(xPixD(0, logFreqMin, logFreqMax), padding.top);
+      ctxD.lineTo(xPixD(0, logFreqMin, logFreqMax), h - padding.bottom);
+      ctxD.stroke();
+
+      // current position
+      ctxD.strokeStyle = '#e00';
+      const currentFreq = freqA * (1 - 2/(x + 1));
+      const currentLogFreq = Math.log2(currentFreq);
+      const currentDissonance = calcParams(freqA, currentFreq).totalDissonance;
+      ctxD.beginPath();
+      // y = 0 axis
+      ctxD.moveTo(padding.left, yPixD(currentDissonance));
+      ctxD.lineTo(w - padding.right, yPixD(currentDissonance));
+      // t = 0 axis
+      ctxD.moveTo(xPixD(currentLogFreq, logFreqMin, logFreqMax), padding.top);
+      ctxD.lineTo(xPixD(currentLogFreq, logFreqMin, logFreqMax), h - padding.bottom);
+      ctxD.stroke();
+
+      // Labels
+      ctxD.fillStyle = '#666';
+      ctxD.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif';
+
+      // x (t) ticks at multiples of π
+      for (let k = (logFreqMin); k <= (logFreqMax); k++) {
+        const x = xPixD(k, logFreqMin, logFreqMax);
+        console.log(-k + logFreqMax, 2 ** (-k + logFreqMax), (2 ** (-k + logFreqMax)).toFixed(0))
+        const labelValue = "1/" + (2 ** (-k + logFreqMax)).toFixed(0);
+        {
+          const label = (k === logFreqMax) ? 'A0' : (String(labelValue) + " A0");
+          ctxD.fillText(label, x - ctxD.measureText(label).width/2, h - 12);
+        }
+
+      }
+
+      // y ticks
+      for (let y = 0; y <= 1.0001; y += 0.2) {
+        const yp = yPixD(y);
+        const label = (Math.abs(y) < 1e-9) ? '0' : String(y);
+        ctxD.fillText(label, 10, yp - 2);
+      }
+
+      // Axis titles
+      ctxD.font = '13px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif';
+      ctxD.fillText('freq', w - padding.right - 10, yPixD(0) - 8);
+      ctxD.save();
+      ctxD.translate(16, padding.top + 16);
+      ctxD.rotate(-Math.PI/2);
+      ctxD.fillText('Dissonance(A0, freq)', 0, 0);
+      ctxD.restore();
+    }
+    function drawDissonance(x, freqA) {
+      setupHiDPID();
+      drawDissonanceAxes(x, freqA);
+      ctxD.strokeStyle = '#2563eb';
+      ctxD.lineWidth = 2;
+
+      const W = canvasD.clientWidth - padding.left - padding.right;
+      const samples = Math.max(800, Math.floor(W)) * 5; // plenty for smoothness
+
+      ctxD.beginPath();
+      const logFreqMin = getLogFreqMin(freqA);
+      const logFreqMax = Math.log2(freqA);
+      for (let i = 0; i <= samples; i++) {
+        const logFreq = logFreqMin + (i / samples) * (logFreqMax - logFreqMin);
+        const freq = 2 ** logFreq;
+        const {totalDissonance} = calcParams(freqA, freq);
+        const xp = xPixD(logFreq, logFreqMin, logFreqMax);
+        const yp = yPixD(totalDissonance);
+        if (i === 0) ctxD.moveTo(xp, yp); else ctxD.lineTo(xp, yp);
+      }
+      ctxD.stroke();
+    }
+
+    // -------- Audio: g(t) = sin(2πA0 t) * cos( (2πA0 t) / x )
+    // Using identity: = 0.5*sin(2π f1 t) + 0.5*sin(2π f2 t)
+    // where f1 = A0 * (1 + 1/x), f2 = A0 * (1 - 1/x)
+    let audioCtx = null;
+    let gain = null;
+    let osc1 = null, osc2 = null;
+
+    function calcParams(f1, f2) {
+
+      const fAvg = (f1 + f2) / 2;
+      const fPB = Math.abs(f1 - f2) / 2;
+      const fSB1 = Math.abs(fAvg - Math.floor(fAvg / fPB) * fPB);
+      const fSB2 = Math.abs(Math.ceil(fAvg / fPB) * fPB - fAvg);
+      const [d0, d1, d2] = [dissonance(fPB), dissonance(fSB1), dissonance(fSB2)];
+      const [s0, s1, s2] = [significance(fPB), significance(fSB1), significance(fSB2)];
+      const totalDissonance =  s0 * d0 + (1-s0) * Math.max(d1, d2);
+      return { f1, f2, fAvg, fPB, fSB1, fSB2, totalDissonance, d0, d1, d2 };
+    }
+
+    function currentParams() {
+      const x = clampX(2**parseFloat(range.value));
+      const A0 = clampHz(parseFloat(a0Box.value));
+      const f1 = A0;
+      const f2 = Math.abs(A0 * (1 - 2/(x+1))); // abs in case x<1 hypothetically
+      return {...calcParams(f1, f2), x, A0};
+    }
+
+    function updateFreqReadout() {
+      const { x, A0, f1, f2, fAvg, fPB, fSB1, fSB2, totalDissonance, d0, d1, d2 } = currentParams();
+      freqReadout.textContent = `A₀ = ${A0.toFixed(2)} Hz,  f₁ = A₀ = ${f1.toFixed(2)} Hz,
+      f₂ = A₀(1−2/(x+1)) = ${f2.toFixed(2)} Hz,
+      f(Signal) = (f1+f2)/2 = ${fAvg.toFixed(2)} Hz, 1mrBt = ${(fPB*2).toFixed(2)} Hz,
+       2ndrBt_1 = ${(fSB1).toFixed(2)} Hz, 2ndrBt_2 = ${(fSB2).toFixed(2)} Hz,
+       2drBt = ${Math.min(fSB1, fSB2).toFixed(2)} Hz,
+       Dissonance = ${d0.toFixed(3)}, ${d1.toFixed(3)}, ${d2.toFixed(3)},
+       totalDissonance = ${totalDissonance}`;
+    }
+
+    function ensureAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        gain = audioCtx.createGain();
+        gain.gain.value = parseFloat(vol.value);
+        gain.connect(audioCtx.destination);
+      }
+    }
+
+    function startSound() {
+      ensureAudio();
+      if (osc1 || osc2) return; // already playing
+
+      const { f1, f2 } = currentParams();
+
+      // Create two sine oscillators
+      osc1 = audioCtx.createOscillator();
+      osc2 = audioCtx.createOscillator();
+      osc1.type = 'sine';
+      osc2.type = 'sine';
+      osc1.frequency.value = f1;
+      osc2.frequency.value = f2;
+
+      // amplitude 0.5 each -> total peak <=1 (tone is 0.5*sin + 0.5*sin)
+      const g1 = audioCtx.createGain();
+      const g2 = audioCtx.createGain();
+      g1.gain.value = 0.5;
+      g2.gain.value = 0.5;
+
+      osc1.connect(g1).connect(gain);
+      osc2.connect(g2).connect(gain);
+
+      // Click-free start
+      const now = audioCtx.currentTime;
+      gain.gain.setTargetAtTime(parseFloat(vol.value), now, 0.01);
+
+      osc1.start();
+      osc2.start();
+      playBtn.setAttribute('aria-pressed', 'true');
+      playBtn.textContent = '■ Stop';
+    }
+
+    function stopSound() {
+      if (!(osc1 || osc2)) return;
+      const now = audioCtx.currentTime;
+      // Smooth fade-out, then stop & disconnect
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setTargetAtTime(0, now, 0.02);
+      setTimeout(() => {
+        try { osc1 && osc1.stop(); } catch {}
+        try { osc2 && osc2.stop(); } catch {}
+        try { osc1 && osc1.disconnect(); } catch {}
+        try { osc2 && osc2.disconnect(); } catch {}
+        osc1 = null; osc2 = null;
+        if (audioCtx && audioCtx.state === 'suspended') {
+          // no-op
+        }
+      }, 60);
+      playBtn.setAttribute('aria-pressed', 'false');
+      playBtn.textContent = '▶ Play';
+    }
+
+    function updateOscFrequencies() {
+      if (!(osc1 && osc2 && audioCtx)) return;
+      const { f1, f2 } = currentParams();
+      const now = audioCtx.currentTime;
+      // Glide smoothly to new frequencies
+      osc1.frequency.setTargetAtTime(f1, now, 0.01);
+      osc2.frequency.setTargetAtTime(f2, now, 0.01);
+    }
+
+    // -------- Sync & validation
+    function clampX(v) {
+      if (Number.isNaN(v)) return 1;
+      return Math.min(128, Math.max(1, v));
+    }
+    function clampHz(v) {
+      if (Number.isNaN(v)) return 440;
+      return Math.min(20000, Math.max(20, v));
+    }
+
+    function dissonance(beat_freq) {
+      return Math.exp(-(Math.log2(beat_freq / 10) ** 2) / (2 * Math.log2(5)))
+    }
+
+    function significance(beat_freq) {
+      const minCut = Math.log2(220);
+      const maxCut = Math.log2(10);
+      const normalizedFactor = (Math.log2(beat_freq) - maxCut) / (minCut - maxCut);
+      return Math.max(0, Math.min(1, 1 - normalizedFactor ** 2))
+    }
+
+    function updateFromSlider() {
+      const x = clampX(2**parseFloat(range.value));
+      box.value = x.toFixed(3).replace(/\.?0+$/,'');
+      const A0 = clampHz(parseFloat(a0Box.value));
+      drawDissonance(x, A0);
+      drawFunction(x);
+
+      updateOscFrequencies();
+      updateFreqReadout();
+    }
+    function updateFromBox() {
+      const x = clampX(parseFloat(box.value));
+      range.value = Math.log2(x);
+      box.value = x.toFixed(3).replace(/\.?0+$/,'');
+      const A0 = clampHz(parseFloat(a0Box.value));
+      drawDissonance(x, A0);
+      drawFunction(x);
+      updateOscFrequencies();
+      updateFreqReadout();
+    }
+    function updateFromA0() {
+      a0Box.value = clampHz(parseFloat(a0Box.value));
+      const x = clampX(parseFloat(box.value));
+      drawDissonance(x, a0Box.value);
+      updateOscFrequencies();
+      updateFreqReadout();
+    }
+
+    // Events
+    range.addEventListener('input', updateFromSlider);
+    box.addEventListener('input', updateFromBox);
+    a0Box.addEventListener('input', updateFromA0);
+
+    vol.addEventListener('input', () => {
+      ensureAudio();
+      const v = parseFloat(vol.value);
+      if (gain) {
+        const now = audioCtx.currentTime;
+        gain.gain.setTargetAtTime(v, now, 0.01);
+      }
+    });
+
+    playBtn.addEventListener('click', async () => {
+      ensureAudio();
+      if (audioCtx.state === 'suspended') {
+        try { await audioCtx.resume(); } catch {}
+      }
+      if (playBtn.getAttribute('aria-pressed') === 'true') {
+        stopSound();
+      } else {
+        startSound();
+      }
+    });
+
+    window.addEventListener('resize', () => updateFromSlider());
+
+    // Initial draw + readout
+    drawFunction(2**parseFloat(range.value));
+    drawDissonance(2**parseFloat(range.value), parseFloat(a0Box.value));
+    updateFreqReadout();
+  </script>
+</body>
+</html>
