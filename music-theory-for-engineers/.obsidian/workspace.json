@@ -27,12 +27,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "4.6 功能和声概述.md",
+                "file": "3.1415 节奏的对位.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "4.6 功能和声概述"
+              "title": "3.1415 节奏的对位"
             }
           },
           {
@@ -196,6 +196,12 @@
   },
   "active": "130afcd398da443d",
   "lastOpenFiles": [
+    "3.141 速度和表情记号.md",
+    "3.14 复拍子.md",
+    "2’ 五线谱.md",
+    "3 节奏.md",
+    "3.1 二和三的游戏.md",
+    "4.6 功能和声概述.md",
     "4. 和声入门.md",
     "4.66 三和弦.md",
     "4.669 声部进行.md",
@@ -205,7 +211,6 @@
     "Pasted image 20260614222834.png",
     "Pasted image 20260614222536.png",
     "Pasted image 20251014183345.png",
-    "4.6 功能和声概述.md",
     "audio/harmony/jumps_in_chord_progression.mp3",
     "images/jumps_in_chord_progression.png",
     "audio/harmony/chord_progressions_without_common_note.mp3",
@@ -233,13 +238,8 @@
     "1.0 泛音列.md",
     "1 音高.md",
     "0 总述.md",
-    "3.141 速度和表情记号.md",
     "3.1415 节奏的对位.md",
-    "3.1 二和三的游戏.md",
-    "3.14 复拍子.md",
-    "3 节奏.md",
     "2. 大小调音阶.md",
-    "2’ 五线谱.md",
     "2.71828 小调音阶简介.md"
   ]
 }
